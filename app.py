@@ -102,10 +102,13 @@ def prepare_combined_detail(result: dict) -> pd.DataFrame:
 
 @st.cache_data
 def _dashboard_trend(df: pd.DataFrame) -> pd.DataFrame:
+    local_abs = df["Local Variance"].abs().fillna(df["Abs Variance"]) if "Local Variance" in df.columns else df["Abs Variance"]
     return (
-        df.groupby("Display Date", dropna=False)["Abs Variance"]
+        df.assign(_local_abs=local_abs)
+        .groupby("Display Date", dropna=False)["_local_abs"]
         .sum()
         .reset_index()
+        .rename(columns={"_local_abs": "Abs Variance (AUD)"})
         .sort_values("Display Date")
     )
 
@@ -183,7 +186,11 @@ def show_dashboard(df: pd.DataFrame) -> None:
             st.altair_chart(
                 alt.Chart(trend_df).mark_line(point=True).encode(
                     x=alt.X("Display Date:O", axis=alt.Axis(labelAngle=0)),
-                    y=alt.Y("Abs Variance:Q", title="Abs Variance"),
+                    y=alt.Y("Abs Variance (AUD):Q", title="Abs Variance (AUD)", axis=alt.Axis(format=",.0f")),
+                    tooltip=[
+                        alt.Tooltip("Display Date:O"),
+                        alt.Tooltip("Abs Variance (AUD):Q", format=",.2f"),
+                    ],
                 ),
                 use_container_width=True,
             )
