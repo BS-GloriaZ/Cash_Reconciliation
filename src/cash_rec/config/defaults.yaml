@@ -1,0 +1,154 @@
+paths:
+  input_root: data/input
+  output_root: data/output/rec_results
+
+sources:
+  citi:
+    enabled: true
+    subdir: citi
+    filename_pattern: "DOD_CASH_BALANCES_*.csv"
+    file_type: csv
+
+  citi_hi:
+    enabled: true
+    subdir: citi_hi
+    filename_pattern: "BSFFTMOUT_Positions_All_*.CSV"
+    file_type: csv
+
+  bnp:
+    enabled: true
+    subdir: bnp
+    filename_pattern: "*GPBCash*.csv"
+    file_type: csv
+
+  bnp_nz:
+    enabled: true
+    subdir: bnp_nz
+    filename_pattern: "*Bal_cash*.csv"
+    file_type: csv
+
+  tradar:
+    enabled: true
+    subdir: tradar
+    filename_pattern: "*Cash Flow since One Month ago - all funds.csv"
+    file_type: csv
+
+  mapping:
+    enabled: true
+    subdir: mapping
+    filename_pattern: "mapping.xlsx"
+    file_type: excel
+
+  bnp_margin_pdf:
+    enabled: true
+    subdir: bnp_margin_pdf
+    filename_pattern: "*DAILY_STAT.pdf"
+    file_type: pdf
+
+reference:
+  subdir: reference
+
+mapping:
+  sheet_name: Sheet1
+  custody_values:
+    citi: CITI
+    bnp: BNP
+    bnp_nz: BNPNZ
+  fallback_fund_order: [Portfolio, Fund]
+  column_aliases:
+    fund: [Fund, Fund Code, Mapping Fund, FUND NAME (F59/72)]
+    portfolio: [Portfolio, Tradar Portfolio, Portfolio/Fund]
+    account_id: [Account ID, AccountID, Account Code]
+    currency_code: [Currency Code, CCY, Currency, Ccy]
+    custody: [Custody, Custodian, Custody Source]
+    tradar_account: [Tradar_Account, Tradar Account, TradarAccount]
+    fund_type: [Fund Type, FundType]
+    skac: [SKAC]
+
+reconciliation:
+  default_lookback_days: 60
+  mapped_funds_only: true
+  source_balance_column: Source Ledger Balance
+  status_round_dp: 2
+  status_match_value: 0
+
+special_reconciliation:
+  bbus_bnp_total:
+    fund: BBUS
+    custody: BNP
+    currency: USD
+    tradar_accounts:
+      - RBC-CS
+      - FUT USD
+      - BTMU 11am
+
+columns:
+  citi_required:
+    - Account ID
+    - Account Name
+    - Currency Code
+    - Close of Business Date
+    - Ledger Balance
+    - Available Balance
+    - Opening Balance
+    - As of Date
+    - Balance Update Timestamp
+
+  bnp_required:
+    - ProcessDate
+    - AsOfDate
+    - AccountCode
+    - AccountName
+    - CurrencyCode
+    - SettleDateBalanceLocal
+
+  bnp_nz_required:
+    - Account ID
+    - Account Name
+    - Account Base Currency Code
+    - Contractual Settlement Date
+    - Opening Balance
+    - Closing Balance
+    - Created Timestamp
+
+  output_rec_detail:
+    - Date
+    - Custody
+    - Fund Type
+    - Source Account ID
+    - Currency Code
+    - Portfolio
+    - Mapping Fund
+    - Tradar_Account
+    - Source Account Name
+    - Source Ledger Balance
+    - Source Available Balance
+    - Source Opening Balance
+    - Tradar Opening Balance
+    - Tradar Settles Used
+    - Tradar Balance
+    - Variance
+    - Abs Variance
+    - Local Variance
+    - BPS Impact
+    - Materiality
+    - Status
+
+  output_hi_rec_detail:
+    - Target Date
+    - Custody
+    - Fund Type
+    - Currency Code
+    - Source SKAC
+    - Source Account ID
+    - Portfolio
+    - Mapping Fund
+    - Tradar_Account
+    - Source Ledger Balance
+    - Tradar Balance
+    - Variance
+    - Abs Variance
+    - Local Variance
+    - BPS Impact
+    - Materiality
+    - Status

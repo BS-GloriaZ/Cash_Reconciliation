@@ -1,0 +1,8 @@
+paths:
+  input_root: data/input
+  output_root: data/output/rec_results
+
+sources:
+  bnp:
+    enabled: true
+    filename_pattern: "*.csv"

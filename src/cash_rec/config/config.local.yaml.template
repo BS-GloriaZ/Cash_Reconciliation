@@ -1,0 +1,42 @@
+# Local configuration overrides — copy this file to config.local.yaml and fill in your paths.
+# Values here are deep-merged on top of defaults.yaml, so you only need to specify what changes.
+#
+# HOW TO USE FOR FTP RECEIPT FOLDERS
+# ------------------------------------
+# Set sources.<name>.path to the absolute path of each FTP receipt folder.
+# The pipeline will search that folder for the latest file matching filename_pattern.
+# Leave any source's path blank (or remove the key) to fall back to input_root/subdir.
+#
+# IMPORTANT: Keep output_root pointing to a separate location — never point it at
+# an FTP source folder. The pipeline validates this at startup and will refuse to run
+# if output_root overlaps with any source directory.
+#
+# RECOMMENDED: Set your FTP receipt folders to read-only at the OS level for the
+# strongest protection. The pipeline only ever reads source files (no writes or deletes),
+# but OS-level read-only prevents accidental changes from any process.
+
+paths:
+  input_root: data/input          # fallback root for sources without an explicit path
+  output_root: data/output/rec_results  # MUST be separate from all source paths
+
+sources:
+  tradar:
+    path: /mnt/w/Ops/Controls/Cash/Tradar Reports                     # e.g. /mnt/Ops/Controls/Cash/Tradar Reports  (leave blank for input_root/subdir)
+
+  citi:
+    path: /mnt/w/Ops/Citi/Rec Files/Archive                  # e.g. /mnt/Ops/Citi/Rec Files/Archive
+
+  citi_hi:
+    path:/mnt/w/Ops/Citi/Rec Files                         # e.g. /mnt/ftp/receipt/citi_hi
+
+  bnp:
+    path:  /mnt/w/Ops/BNP/Rec Files                       # e.g. /mnt/Ops/BNP/Rec Files
+
+  bnp_nz:
+    path: /mnt/w/Ops/BNP NZ/Rec Files/Recon cleaned                        # e.g. 
+
+  mapping:
+    path:                         # e.g. /mnt/ftp/receipt/mapping  (or a shared network share)
+
+  bnp_margin_pdf:
+    path: /mnt/w/Ops/BNP/Rec Files                        # e.g. /mnt/ftp/receipt/bnp_margin_pdf
