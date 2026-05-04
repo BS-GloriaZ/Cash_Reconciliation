@@ -169,7 +169,7 @@ def build_tradar_daily_balances(
     daily['Tradar Balance'] = daily['Tradar Balance'].fillna(daily['Tradar Opening Balance'])
     daily = daily.rename(columns={'Account': 'Tradar_Account'})
     daily = daily.sort_values(['Date', 'Fund', 'CCY']).reset_index(drop=True)
-    raw_cols = ['Fund', 'Account', 'CCY', 'Trade', 'Type', 'Date', 'Settles', 'Amount', 'Cashflow', 'Cumulative Cashflow', 'Balance', 'Description', 'Notes']
+    raw_cols = ['Fund', 'Account', 'CCY', 'Trade', 'Type', 'Security Type', 'Sedol', 'Isin', 'Date', 'Settles', 'Amount', 'Cashflow', 'Cumulative Cashflow', 'Balance', 'Description', 'Notes']
     raw_settled = settled[[c for c in raw_cols if c in settled.columns]].copy()
     raw_settled = raw_settled.sort_values(['Fund', 'CCY', 'Settles', 'Date'], na_position='last').reset_index(drop=True)
     return daily, raw_settled
@@ -815,6 +815,10 @@ def reconcile_bbus_bnp_total_balance(
     # -----------------------------
     # Final output
     # -----------------------------
+    source_account_ids = ",".join(sorted(
+        matched["Source Account ID"].dropna().astype(str).str.strip().unique().tolist()
+    )) if "Source Account ID" in matched.columns else ""
+
     detail = pd.DataFrame([{
         "Date": target_date,
         "Fund": target_fund,
@@ -823,6 +827,7 @@ def reconcile_bbus_bnp_total_balance(
         "Portfolio": tradar_match_fund,
         "Mapping Fund": target_fund,
         "Fund Type": matched["Fund Type"].iloc[0] if "Fund Type" in matched.columns and not matched.empty else "",
+        "Source Account ID": source_account_ids,
         "BNP Cash Balance USD": bnp_cash_balance_usd,
         "Initial Margin Requirement USD": float(pdf_adjustment["Initial Margin Requirement USD"]),
         "Unrealized Trading USD": float(pdf_adjustment["Unrealized Trading USD"]),

@@ -411,3 +411,170 @@ def read_pdf_text(pdf_file: str | Path) -> str:
     for page in reader.pages:
         pages.append(page.extract_text() or "")
     return "\n".join(pages)
+
+
+# ---------------------------------------------------------------------------
+# Custody transaction loaders — produce a common schema:
+#   Custody | Account ID | Currency Code | COB Date | Settle Date | Amount | Description
+# ---------------------------------------------------------------------------
+
+_TXN_OUT_COLS = ["Custody", "Account ID", "Currency Code", "COB Date", "Settle Date", "Amount", "Description", "Security ID", "ISIN", "SEDOL", "Security Name"]
+
+
+def load_citi_transactions(source_dir: str | Path, config: dict) -> pd.DataFrame:
+    """Load Citi DOD_CASH_TRANSACTIONS_V1_C30_*.csv files from a directory.
+
+    Uses usecols so the 160-column file is not fully materialised in memory.
+    Amount is pre-signed (negative = debit, positive = credit).
+    """
+    source = Path(source_dir)
+    pattern = config.get("sources", {}).get("citi_txns", {}).get("filename_pattern", "DOD_CASH_TRANSACTIONS_V1_C30_*.csv")
+    files = sorted(source.glob(pattern), key=lambda p: p.name)
+    if not files:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    files = [files[-1]]  # latest file already contains full history; loading all doubles rows needlessly
+
+    needed = {
+        "Account ID", "Currency Code", "Amount",
+        "Close of Business Date", "Contractual Settlement Date",
+        "Transaction Description", "SEDOL", "ISIN", "Issue Description",
+    }
+    raw_frames = []
+    for f in files:
+        try:
+            df = read_tabular_file(f, dtype=str, usecols=lambda c: c in needed)
+            df.columns = dedupe_columns(df.columns)
+            if "Account ID" not in df.columns or "Amount" not in df.columns:
+                continue
+            raw_frames.append(df)
+        except Exception:
+            pass
+
+    if not raw_frames:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    txns = pd.concat(raw_frames, ignore_index=True)
+    txns["COB Date"]    = pd.to_datetime(txns.get("Close of Business Date"),     errors="coerce").dt.normalize()
+    txns["Settle Date"] = pd.to_datetime(txns.get("Contractual Settlement Date"), errors="coerce").dt.normalize()
+    txns["Account ID"]  = txns["Account ID"].fillna("").astype(str).str.strip()
+    txns["Currency Code"] = txns["Currency Code"].fillna("").astype(str).str.strip().str.upper()
+    txns["Amount"]      = pd.to_numeric(txns["Amount"], errors="coerce")
+    txns["Description"] = txns.get("Transaction Description", pd.Series("", index=txns.index)).fillna("").astype(str)
+    sedol = txns.get("SEDOL", pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    isin  = txns.get("ISIN",  pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    txns["Security ID"]   = sedol.where(sedol.ne(""), isin)
+    txns["SEDOL"]         = sedol
+    txns["ISIN"]          = isin
+    txns["Security Name"] = txns.get("Issue Description", pd.Series("", index=txns.index)).fillna("").astype(str)
+    txns["Custody"]     = "CITI"
+    return txns[[c for c in _TXN_OUT_COLS if c in txns.columns]].dropna(subset=["COB Date", "Amount"]).copy()
+
+
+def load_bnp_transactions(source_dir: str | Path, config: dict) -> pd.DataFrame:
+    """Load BNP *99X.CashLedgerSD.csv files from a directory.
+
+    Account identifier is the 'ID' column (matches AccountCode / Source Account ID in mapping).
+    Settlement date is 'Settle Date'. Transaction type is 'Activity'. Net Amount is pre-signed.
+    """
+    source = Path(source_dir)
+    pattern = config.get("sources", {}).get("bnp_txns", {}).get("filename_pattern", "*99X.CashLedgerSD.csv")
+    files = sorted(source.glob(pattern), key=lambda p: p.name)
+    if not files:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    raw_frames = []
+    for f in files:
+        try:
+            df = read_tabular_file(f, dtype=str)
+            df.columns = dedupe_columns(df.columns)
+            if "AsOfDate" not in df.columns or "Net Amount" not in df.columns:
+                continue
+            if df.empty:
+                continue
+            raw_frames.append(df)
+        except Exception:
+            pass
+
+    if not raw_frames:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    txns = pd.concat(raw_frames, ignore_index=True)
+    txns["COB Date"]      = pd.to_datetime(txns["AsOfDate"], errors="coerce").dt.normalize()
+    # Settle Date is stored as YYYYMMDD integer string
+    txns["Settle Date"]   = pd.to_datetime(txns.get("Settle Date"), format="%Y%m%d", errors="coerce").dt.normalize()
+    txns["Account ID"]    = txns["ID"].fillna("").astype(str).str.strip()
+    # 'Code' column holds the ISO currency code (e.g. AUD/USD); 'Currency' holds full names
+    txns["Currency Code"] = txns.get("Code", pd.Series("", index=txns.index)).fillna("").astype(str).str.strip().str.upper()
+    txns["Amount"]        = pd.to_numeric(txns["Net Amount"], errors="coerce")
+    txns["Description"]   = txns.get("Activity", pd.Series("", index=txns.index)).fillna("").astype(str)
+    sedol = txns.get("SEDOL", pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    isin  = txns.get("ISIN",  pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    txns["Security ID"]   = sedol.where(sedol.ne(""), isin)
+    txns["SEDOL"]         = sedol
+    txns["ISIN"]          = isin
+    txns["Security Name"] = txns.get("Security Description", pd.Series("", index=txns.index)).fillna("").astype(str)
+    txns["_opening"]      = pd.to_numeric(txns.get("Previous Local Opening Balance"), errors="coerce")
+    txns["_closing"]      = pd.to_numeric(txns.get("Local Closing Balance"), errors="coerce")
+    txns["Custody"]       = "BNP"
+
+    # Balance summary rows (Amount=0, no Settle Date) carry the opening/closing balance
+    # per account/currency for the day. Extract and join onto the transaction rows.
+    bal_rows = txns[txns["Amount"].eq(0) | txns["Amount"].isna()].copy()
+    balances = (
+        bal_rows.groupby(["COB Date", "Account ID", "Currency Code"], dropna=False)
+        .agg(Opening_Balance=("_opening", "first"), Closing_Balance=("_closing", "first"))
+        .reset_index()
+    )
+
+    txn_rows = txns[txns["Amount"].notna() & txns["Amount"].ne(0)].copy()
+    txn_rows = txn_rows.merge(balances, on=["COB Date", "Account ID", "Currency Code"], how="left")
+    txn_rows = txn_rows.rename(columns={"Opening_Balance": "Opening Balance", "Closing_Balance": "Closing Balance"})
+
+    out_cols = _TXN_OUT_COLS + ["Opening Balance", "Closing Balance"]
+    return txn_rows[[c for c in out_cols if c in txn_rows.columns]].dropna(subset=["COB Date"]).reset_index(drop=True)
+
+
+def load_bnp_nz_transactions(source_dir: str | Path, config: dict) -> pd.DataFrame:
+    """Load BNP NZ *_BNPNZ_Custody_Cash.csv files from a directory.
+
+    The file has many blank-named columns; we select by name after load.
+    Amount is pre-signed.
+    """
+    source = Path(source_dir)
+    pattern = config.get("sources", {}).get("bnp_nz_txns", {}).get("filename_pattern", "*_BNPNZ_Custody_Cash.csv")
+    files = sorted(source.glob(pattern), key=lambda p: p.name)
+    if not files:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    raw_frames = []
+    for f in files:
+        try:
+            df = read_tabular_file(f, dtype=str)
+            df.columns = dedupe_columns(df.columns)
+            if "Account ID" not in df.columns or "Amount" not in df.columns:
+                continue
+            raw_frames.append(df)
+        except Exception:
+            pass
+
+    if not raw_frames:
+        return pd.DataFrame(columns=_TXN_OUT_COLS)
+
+    txns = pd.concat(raw_frames, ignore_index=True)
+    date_col            = "Contractual Settlement Date" if "Contractual Settlement Date" in txns.columns else "Entry Date"
+    txns["COB Date"]    = pd.to_datetime(txns[date_col], errors="coerce").dt.normalize()
+    txns["Settle Date"] = pd.to_datetime(txns.get("Value Date"), errors="coerce").dt.normalize()
+    txns["Account ID"]  = txns["Account ID"].fillna("").astype(str).str.strip()
+    ccy_col             = "Account Base Currency Code" if "Account Base Currency Code" in txns.columns else "Currency Code"
+    txns["Currency Code"] = txns[ccy_col].fillna("").astype(str).str.strip().str.upper()
+    txns["Amount"]      = pd.to_numeric(txns["Amount"], errors="coerce")
+    txns["Description"] = txns.get("Cash Transaction Type", pd.Series("", index=txns.index)).fillna("").astype(str)
+    sedol = txns.get("SEDOL", pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    isin  = txns.get("ISIN",  pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
+    txns["Security ID"]   = sedol.where(sedol.ne(""), isin)
+    txns["SEDOL"]         = sedol
+    txns["ISIN"]          = isin
+    txns["Security Name"] = ""
+    txns["Custody"]     = "BNPNZ"
+    return txns[[c for c in _TXN_OUT_COLS if c in txns.columns]].dropna(subset=["COB Date", "Amount"]).copy()

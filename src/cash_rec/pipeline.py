@@ -13,6 +13,9 @@ from cash_rec.data_clean import (
     load_and_clean_bnp_nz,
     load_and_clean_citi,
     load_and_clean_citi_hi_balance,
+    load_bnp_nz_transactions,
+    load_bnp_transactions,
+    load_citi_transactions,
     load_mapping,
     parse_bnp_margin_pdf,
     parse_title_date_range,
@@ -192,6 +195,19 @@ def run_cash_reconciliation(
     )
     _t["export_excel"] = time.perf_counter() - _t0; _t0 = time.perf_counter()
 
+    txn_frames = []
+    citi_txn_dir = resolve_source_dir(config, "citi_txns")
+    if citi_txn_dir.is_dir():
+        txn_frames.append(load_citi_transactions(citi_txn_dir, config))
+    bnp_txn_dir = resolve_source_dir(config, "bnp_txns")
+    if bnp_txn_dir.is_dir():
+        txn_frames.append(load_bnp_transactions(bnp_txn_dir, config))
+    bnp_nz_txn_dir = resolve_source_dir(config, "bnp_nz_txns")
+    if bnp_nz_txn_dir.is_dir():
+        txn_frames.append(load_bnp_nz_transactions(bnp_nz_txn_dir, config))
+    custody_txns = pd.concat([f for f in txn_frames if not f.empty], ignore_index=True) if txn_frames else pd.DataFrame()
+    _t["load_txns"] = time.perf_counter() - _t0; _t0 = time.perf_counter()
+
     manifest_path = output_path.parent / "manifest.json"
     manifest = {
         "latest_file": output_path.name,
@@ -215,6 +231,8 @@ def run_cash_reconciliation(
         "bbus_pdf_summary": bbus_pdf_summary,
         "bbus_pdf_detail": bbus_pdf_detail,
         "mapping_raw": mapping_raw,
+        "raw_tradar_settled": raw_tradar_settled,
+        "custody_txns": custody_txns,
         "source_warnings": source_warnings,
         "timings": _t,
     }
