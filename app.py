@@ -532,7 +532,7 @@ def _reconcile_txns(trd_df: pd.DataFrame, cust_df: pd.DataFrame, _v: int = 10) -
                           "bond", "fixed income", "floating rate note", "frn"}
     _EQUITY_SEC_TYPES  = {"equity", "common stock", "ordinary share", "ordinary shares",
                           "preference share", "preference shares", "reit"}
-    _FX_SEC_TYPES      = {"exchrate", "exchange rate", "fx"}
+    _FX_SEC_TYPES      = {"exchrate"}
 
     def _trd_sec_id(row) -> str:
         sec_type = _safe_str(row.get("Security Type")).casefold()
@@ -642,14 +642,6 @@ def _reconcile_txns(trd_df: pd.DataFrame, cust_df: pd.DataFrame, _v: int = 10) -
             return "Trade"
         if has_sec_id and _is_cust_trade_desc(cust_desc):
             return "Trade"
-
-        # FX (purchase/sell without a security ID, or explicit FX description)
-        if t in ("purchase", "sell", "sale") and not has_sec_id:
-            return "FX"
-        if any(kw in td for kw in ("fx", "foreign exchange", "forward")):
-            return "FX"
-        if any(kw in cd for kw in ("fx", "foreign exchange", "forward")):
-            return "FX"
 
         # Flow Cash (subscriptions, redemptions, capital calls, transfers)
         if any(kw in td for kw in ("subscription", "redemption", "transfer",
