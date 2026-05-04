@@ -46,7 +46,13 @@ def resolve_input_paths(config: dict, overrides: dict[str, str | None]) -> dict[
             paths[source_name] = Path(override)
             continue
         source_dir = resolve_source_dir(config, source_name)
-        paths[source_name] = latest_matching_file(source_dir, source_cfg['filename_pattern'])
+        if source_cfg.get('optional'):
+            try:
+                paths[source_name] = latest_matching_file(source_dir, source_cfg['filename_pattern'])
+            except CashRecError:
+                pass
+        else:
+            paths[source_name] = latest_matching_file(source_dir, source_cfg['filename_pattern'])
     return paths
 
 

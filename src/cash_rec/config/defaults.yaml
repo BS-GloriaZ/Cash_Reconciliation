@@ -65,6 +65,7 @@ sources:
 
   tlog:
     enabled: true
+    optional: true
     subdir: tlog
     filename_pattern: "uploaded_tlogdata_*"
     file_type: csv
