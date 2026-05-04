@@ -205,7 +205,8 @@ def run_cash_reconciliation(
     bnp_nz_txn_dir = resolve_source_dir(config, "bnp_nz_txns")
     if bnp_nz_txn_dir.is_dir():
         txn_frames.append(load_bnp_nz_transactions(bnp_nz_txn_dir, config))
-    custody_txns = pd.concat([f for f in txn_frames if not f.empty], ignore_index=True) if txn_frames else pd.DataFrame()
+    _non_empty = [f for f in txn_frames if not f.empty]
+    custody_txns = pd.concat(_non_empty, ignore_index=True) if _non_empty else pd.DataFrame()
     _t["load_txns"] = time.perf_counter() - _t0; _t0 = time.perf_counter()
 
     manifest_path = output_path.parent / "manifest.json"

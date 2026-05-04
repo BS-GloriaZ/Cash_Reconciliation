@@ -562,12 +562,12 @@ def load_bnp_nz_transactions(source_dir: str | Path, config: dict) -> pd.DataFra
         return pd.DataFrame(columns=_TXN_OUT_COLS)
 
     txns = pd.concat(raw_frames, ignore_index=True)
-    date_col            = "Contractual Settlement Date" if "Contractual Settlement Date" in txns.columns else "Entry Date"
-    txns["COB Date"]    = pd.to_datetime(txns[date_col], errors="coerce").dt.normalize()
+    date_col            = next((c for c in ("Contractual Settlement Date", "Entry Date", "Value Date") if c in txns.columns), None)
+    txns["COB Date"]    = pd.to_datetime(txns[date_col] if date_col else pd.NaT, errors="coerce").dt.normalize()
     txns["Settle Date"] = pd.to_datetime(txns.get("Value Date"), errors="coerce").dt.normalize()
     txns["Account ID"]  = txns["Account ID"].fillna("").astype(str).str.strip()
-    ccy_col             = "Account Base Currency Code" if "Account Base Currency Code" in txns.columns else "Currency Code"
-    txns["Currency Code"] = txns[ccy_col].fillna("").astype(str).str.strip().str.upper()
+    ccy_col             = next((c for c in ("Account Base Currency Code", "Currency Code") if c in txns.columns), None)
+    txns["Currency Code"] = txns[ccy_col].fillna("").astype(str).str.strip().str.upper() if ccy_col else ""
     txns["Amount"]      = pd.to_numeric(txns["Amount"], errors="coerce")
     txns["Description"] = txns.get("Cash Transaction Type", pd.Series("", index=txns.index)).fillna("").astype(str)
     sedol = txns.get("SEDOL", pd.Series("", index=txns.index)).fillna("").astype(str).str.strip()
