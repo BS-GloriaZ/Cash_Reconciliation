@@ -6,7 +6,7 @@ sources:
   citi:
     enabled: true
     subdir: citi
-    filename_pattern: "DOD_CASH_BALANCES_*.csv"
+    filename_pattern: "DOD_CASH_BALANCES_V1_C30_*.csv"
     file_type: csv
 
   citi_hi:
@@ -44,6 +44,30 @@ sources:
     subdir: bnp_margin_pdf
     filename_pattern: "*DAILY_STAT.pdf"
     file_type: pdf
+
+  citi_txns:
+    enabled: true
+    subdir: citi
+    filename_pattern: "DOD_CASH_TRANSACTIONS_V1_C30_*.csv"
+    file_type: csv
+
+  bnp_txns:
+    enabled: true
+    subdir: bnp
+    filename_pattern: "*99X.CashLedgerSD.csv"
+    file_type: csv
+
+  bnp_nz_txns:
+    enabled: true
+    subdir: bnp_nz
+    filename_pattern: "*_BNPNZ_Custody_Cash.csv"
+    file_type: csv
+
+  tlog:
+    enabled: true
+    subdir: tlog
+    filename_pattern: "uploaded_tlogdata_*"
+    file_type: csv
 
 reference:
   subdir: reference

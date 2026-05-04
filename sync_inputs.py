@@ -24,13 +24,14 @@ import os
 import re
 import shutil
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
 
 # Sources that require ALL files within the lookback window (one file = one
 # settlement date). Everything else just needs the single latest file.
-MULTI_FILE_SOURCES = {"citi_hi"}
+MULTI_FILE_SOURCES = {"citi_hi", "bnp_nz_txns"}
 
 
 def _extract_date(path: Path) -> pd.Timestamp | None:
@@ -91,31 +92,50 @@ def _local_has_today(dest_dir: Path, pattern: str) -> str | None:
     return None
 
 
+def _dir_touched_today(directory: Path) -> bool:
+    """One stat call: True if the directory mtime >= today midnight.
+
+    On SMB shares the directory mtime advances when files are written into it,
+    so this lets us skip scanning thousands of files on unchanged folders.
+    Returns True on any error so we fall through to the full scan.
+    """
+    try:
+        return directory.stat().st_mtime >= _today_start_ts()
+    except OSError:
+        return True
+
+
 def sync_single(
     src_dir: Path,
     dest_dir: Path,
     pattern: str,
+    today_only: bool = True,
     dry_run: bool = False,
 ) -> tuple[int, list[str]]:
     """Copy only the latest file matching pattern. Returns (files_copied, log_messages)."""
-    # Fast path: a matching local file was already copied today (mtime >= midnight).
     local_today = _local_has_today(dest_dir, pattern)
     if local_today:
         return 0, [f"  Current (synced today): {local_today}"]
 
-    # Network scan via scandir — on SMB/Windows shares DirEntry caches the
-    # directory-listing metadata, so entry.stat() avoids extra round-trips.
+    if today_only and not _dir_touched_today(src_dir):
+        return 0, ["  No new files today"]
+
     entries = list(_scandir_matching(src_dir, pattern))
     if not entries:
         return 0, [f"  [WARN] No files matching '{pattern}' in {src_dir}"]
 
-    # Prefer filename-date sort (zero extra stat calls).
-    # Fall back to mtime only when no files carry a date in their name.
-    dated = [e for e in entries if _extract_date(Path(e.name)) is not None]
-    if dated:
-        latest = max(dated, key=lambda e: _file_date_key(e.name))
-    else:
+    if today_only:
+        ts = _today_start_ts()
+        entries = [e for e in entries if e.stat().st_mtime >= ts]
+        if not entries:
+            return 0, ["  No new files today"]
         latest = max(entries, key=lambda e: e.stat().st_mtime)
+    else:
+        dated = [e for e in entries if _extract_date(Path(e.name)) is not None]
+        if dated:
+            latest = max(dated, key=lambda e: _file_date_key(e.name))
+        else:
+            latest = max(entries, key=lambda e: e.stat().st_mtime)
 
     dest = dest_dir / latest.name
     copied = _copy_if_needed(Path(latest.path), dest, dry_run)
@@ -128,21 +148,29 @@ def sync_multi(
     dest_dir: Path,
     pattern: str,
     cutoff: pd.Timestamp,
+    today_only: bool = True,
     dry_run: bool = False,
 ) -> tuple[int, list[str]]:
-    """Copy all files within the lookback window. Returns (files_copied, log_messages)."""
-    # Fast path: a matching local file was already copied today.
+    """Copy all matching files (today only in daily mode, full window in --full mode)."""
     local_today = _local_has_today(dest_dir, pattern)
     if local_today:
         return 0, [f"  Current (synced today): {local_today} (and others)"]
 
-    # Network scan — filter by date in filename (no extra stat calls needed).
-    entries = [
-        e for e in _scandir_matching(src_dir, pattern)
-        if (d := _extract_date(Path(e.name))) is not None and d >= cutoff
-    ]
-    if not entries:
-        return 0, [f"  [WARN] No files within window in {src_dir}"]
+    if today_only:
+        if not _dir_touched_today(src_dir):
+            return 0, ["  No new files today"]
+        ts = _today_start_ts()
+        entries = [e for e in _scandir_matching(src_dir, pattern) if e.stat().st_mtime >= ts]
+        if not entries:
+            return 0, ["  No new files today"]
+    else:
+        entries = [
+            e for e in _scandir_matching(src_dir, pattern)
+            if (d := _extract_date(Path(e.name))) is not None and d >= cutoff
+        ]
+        if not entries:
+            return 0, [f"  [WARN] No files within window in {src_dir}"]
+
     msgs: list[str] = []
     copied = 0
     for entry in sorted(entries, key=lambda e: e.name):
@@ -186,6 +214,7 @@ def sync_all(
 
     sources = config.get("sources", {})
     total_copied = 0
+    script_start = time.perf_counter()
 
     for source_name, ftp_path_str in ftp_cfg.items():
         src_dir = Path(ftp_path_str)
@@ -200,15 +229,23 @@ def sync_all(
             msgs.append("  SKIP: source folder not found")
             continue
 
+        source_start = time.perf_counter()
+        today_only = not full
         if source_name in MULTI_FILE_SOURCES:
-            n, source_msgs = sync_multi(src_dir, dest_dir, pattern, cutoff, dry_run=dry_run)
+            n, source_msgs = sync_multi(src_dir, dest_dir, pattern, cutoff, today_only=today_only, dry_run=dry_run)
         else:
-            n, source_msgs = sync_single(src_dir, dest_dir, pattern, dry_run=dry_run)
+            n, source_msgs = sync_single(src_dir, dest_dir, pattern, today_only=today_only, dry_run=dry_run)
 
+        elapsed = time.perf_counter() - source_start
         msgs.extend(source_msgs)
+        mins, secs = divmod(int(elapsed), 60)
+        msgs.append(f"  Time   : {mins}m {secs:02d}s" if mins else f"  Time   : {secs}s")
         total_copied += n
 
-    msgs.append(f"Done. {total_copied} file(s) copied.")
+    total_elapsed = time.perf_counter() - script_start
+    total_mins, total_secs = divmod(int(total_elapsed), 60)
+    elapsed_str = f"{total_mins}m {total_secs:02d}s" if total_mins else f"{total_secs}s"
+    msgs.append(f"Done. {total_copied} file(s) copied.  Total time: {elapsed_str}")
     return total_copied, msgs
 
 

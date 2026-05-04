@@ -36,11 +36,15 @@ $dest_root = "\\wsl.localhost\Ubuntu\home\gloriazuo\Cash-Reconciliation_V2\data\
 # ---------------------------------------------------------------------------
 $sources = [ordered]@{
     tradar         = @{ src = "W:\Ops\Controls\Cash\Tradar Reports";         pattern = "*Cash Flow since One Month ago - all funds.csv"; multi_file = $false }
-    citi           = @{ src = "W:\Ops\Citi\Rec Files\Archive";               pattern = "DOD_CASH_BALANCES_*.csv";       multi_file = $false }
-    citi_hi        = @{ src = "W:\Ops\Citi\Rec Files";                       pattern = "BSFFTMOUT_Positions_All_*.CSV"; multi_file = $true  }
-    bnp            = @{ src = "W:\Ops\BNP\Rec Files";                        pattern = "*GPBCash*.csv";                 multi_file = $false }
-    bnp_nz         = @{ src = "W:\Ops\BNP NZ\Rec Files\Recon cleaned";       pattern = "*Bal_cash*.csv";                multi_file = $true  }
-    bnp_margin_pdf = @{ src = "W:\Ops\BNP\Rec Files";                        pattern = "*DAILY_STAT.pdf";               multi_file = $false }
+    citi           = @{ src = "W:\Ops\Citi\Rec Files\Archive";               pattern = "DOD_CASH_BALANCES_V1_C30_*.csv";                 multi_file = $false }
+    citi_hi        = @{ src = "W:\Ops\Citi\Rec Files";                       pattern = "BSFFTMOUT_Positions_All_*.CSV";                  multi_file = $true  }
+    citi_txns      = @{ src = "W:\Ops\Citi\Rec Files\Archive";               pattern = "DOD_CASH_TRANSACTIONS_V1_C30_*.csv";             multi_file = $false }
+    bnp            = @{ src = "W:\Ops\BNP\Rec Files";                        pattern = "*GPBCash*.csv";                                  multi_file = $false }
+    bnp_txns       = @{ src = "W:\Ops\BNP\Rec Files";                        pattern = "*99X.CashLedgerSD.csv";                         multi_file = $false }
+    bnp_nz         = @{ src = "W:\Ops\BNP NZ\Rec Files\Recon cleaned";       pattern = "*Bal_cash*.csv";                                 multi_file = $true  }
+    bnp_nz_txns    = @{ src = "W:\Ops\BNP NZ\Rec Files\Recon cleaned";       pattern = "*_BNPNZ_Custody_Cash.csv";                      multi_file = $true  }
+    bnp_margin_pdf = @{ src = "W:\Ops\BNP\Rec Files";                        pattern = "*DAILY_STAT.pdf";                                multi_file = $false }
+    tlog           = @{ src = "W:\Ops\Templates and Trades for RBC\_tlog_data\Processed"; pattern = "uploaded_tlogdata_*";               multi_file = $true  }
 }
 
 $mode = if ($Full) { "FULL (last $LookbackDays calendar days)" } else { "DAILY (incremental)" }
@@ -50,13 +54,15 @@ Write-Host "Destination: $dest_root"
 Write-Host (Get-Date -Format "yyyy-MM-dd HH:mm")
 Write-Host ""
 
-$cutoff = (Get-Date).AddDays(-$LookbackDays)
+$script_start = Get-Date
+$cutoff = $script_start.AddDays(-$LookbackDays)
 $total_copied = 0
 
 foreach ($name in $sources.Keys) {
     $s = $sources[$name]
     $dest = Join-Path $dest_root $name
 
+    $source_start = Get-Date
     Write-Host "[$name]" -ForegroundColor Yellow -NoNewline
     Write-Host "  $($s.src)"
 
@@ -122,8 +128,13 @@ foreach ($name in $sources.Keys) {
             $total_copied += $copied
         }
     }
+    $source_elapsed = (Get-Date) - $source_start
+    Write-Host ("  Time   : {0:mm\:ss}" -f $source_elapsed) -ForegroundColor DarkGray
     Write-Host ""
 }
 
-Write-Host "Done. $total_copied file(s) copied." -ForegroundColor Cyan
+$total_elapsed = (Get-Date) - $script_start
+$mins = [int]$total_elapsed.TotalMinutes
+$secs = $total_elapsed.Seconds
+Write-Host "Done. $total_copied file(s) copied.  Total time: ${mins}m ${secs}s" -ForegroundColor Cyan
 Write-Host ""
